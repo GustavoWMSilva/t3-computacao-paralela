@@ -1,4 +1,7 @@
-mpirun -np 1 ./mult_mpi 2048
-mpirun -np 2 ./mult_mpi 2048
-mpirun -np 4 ./mult_mpi 2048
-mpirun --oversubscribe -np 8 ./mult_mpi 2048
+#!/bin/bash
+
+N=2048
+
+for P in 1 3 7 15 31; do
+    mpirun --oversubscribe -np "$P" ./mult_mpi "$N"
+done

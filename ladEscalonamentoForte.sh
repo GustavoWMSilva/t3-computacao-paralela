@@ -1,6 +1,12 @@
-srun -N 2 -n 2 ./mult_mpi 2048
-srun -N 2 -n 3 ./mult_mpi 2048
-srun -N 2 -n 5 ./mult_mpi 2048
-srun -N 2 -n 9 ./mult_mpi 2048
-srun -N 2 -n 17 ./mult_mpi 2048
-srun -N 3 -n 33 ./mult_mpi 2048
+#!/bin/bash
+
+N=2048
+
+for P in 1 3 7 15 31; do
+    NODOS=2
+    if [ "$P" -eq 1 ]; then
+        NODOS=1
+    fi
+
+    srun -N "$NODOS" -n "$P" ./mult_mpi "$N"
+done

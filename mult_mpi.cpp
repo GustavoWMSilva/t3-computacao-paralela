@@ -7,10 +7,9 @@
 #include <random>
 #include <vector>
 
-constexpr int TAG_PEDIDO = 1;
-constexpr int TAG_TRABALHO = 2;
-constexpr int TAG_RESULTADO = 3;
-constexpr int TAG_TERMINO = 4;
+constexpr int TAG_CABECALHO = 1;
+constexpr int TAG_BLOCO_A = 2;
+constexpr int TAG_BLOCO_C = 3;
 
 static void PreencherAleatorio(std::vector<double>& matriz, int n, unsigned int semente) {
     std::mt19937 gerador(semente);
@@ -21,56 +20,77 @@ static void PreencherAleatorio(std::vector<double>& matriz, int n, unsigned int 
     }
 }
 
-static void MultiplicarSequencial(const std::vector<double>& A,
-                                  const std::vector<double>& B,
-                                  std::vector<double>& C,
-                                  int n) {
-    std::fill(C.begin(), C.end(), 0.0);
+static void MultiplicarBloco(const std::vector<double>& blocoA,
+                             const std::vector<double>& B,
+                             std::vector<double>& blocoC,
+                             int linhas,
+                             int n) {
+    std::fill(blocoC.begin(), blocoC.end(), 0.0);
 
-    for (int i = 0; i < n; ++i) {
+    for (int i = 0; i < linhas; ++i) {
         int baseA = i * n;
         int baseC = i * n;
         for (int k = 0; k < n; ++k) {
-            double a = A[baseA + k];
+            double a = blocoA[baseA + k];
             int baseB = k * n;
             for (int j = 0; j < n; ++j) {
-                C[baseC + j] += a * B[baseB + j];
+                blocoC[baseC + j] += a * B[baseB + j];
             }
         }
     }
 }
 
-static void MultiplicarLinha(const std::vector<double>& linhaA,
-                             const std::vector<double>& B,
-                             std::vector<double>& linhaC,
-                             int n) {
-    std::fill(linhaC.begin(), linhaC.end(), 0.0);
+static bool EhArvoreCompleta(int processos) {
+    int valor = processos + 1;
+    return processos > 0 && (valor & (valor - 1)) == 0;
+}
 
-    for (int k = 0; k < n; ++k) {
-        double a = linhaA[k];
-        int baseB = k * n;
-        for (int j = 0; j < n; ++j) {
-            linhaC[j] += a * B[baseB + j];
-        }
-    }
+static int Pai(int rank) {
+    return (rank - 1) / 2;
+}
+
+static int FilhoEsquerdo(int rank) {
+    return 2 * rank + 1;
+}
+
+static int FilhoDireito(int rank) {
+    return 2 * rank + 2;
+}
+
+static bool TemFilhos(int rank, int totalProcessos) {
+    return FilhoDireito(rank) < totalProcessos;
+}
+
+static double* Dados(std::vector<double>& v) {
+    return v.empty() ? nullptr : v.data();
+}
+
+static double* DadosComDeslocamento(std::vector<double>& v, int deslocamento) {
+    return v.empty() ? nullptr : v.data() + deslocamento;
 }
 
 int main(int argc, char* argv[]) {
     MPI_Init(&argc, &argv);
 
     int rank = 0;
-    int tamanhoMundo = 0;
+    int totalProcessos = 0;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &tamanhoMundo);
+    MPI_Comm_size(MPI_COMM_WORLD, &totalProcessos);
 
     int n = 0;
+
     if (rank == 0) {
         if (argc < 2) {
-            std::cerr << "Uso: mpirun -np <processos> ./matmul_mpi <tamanho>\n";
-            std::cerr << "Exemplo: mpirun -np 4 ./matmul_mpi 1024\n";
+            std::cerr << "Uso: mpirun -np <1|3|7|15|31> ./mult_mpi <tamanho>\n";
             n = 0;
         } else {
             n = std::atoi(argv[1]);
+        }
+
+        if (!EhArvoreCompleta(totalProcessos)) {
+            std::cerr << "Numero de processos invalido para arvore binaria completa.\n";
+            std::cerr << "Use 1, 3, 7, 15, 31, 63, ... processos.\n";
+            n = 0;
         }
     }
 
@@ -82,103 +102,83 @@ int main(int argc, char* argv[]) {
     }
 
     std::vector<double> B(static_cast<size_t>(n) * n);
-    std::vector<double> A;
-    std::vector<double> C;
+    std::vector<double> blocoA;
+    std::vector<double> blocoC;
+
+    int linhaInicial = 0;
+    int linhas = 0;
 
     if (rank == 0) {
-        A.resize(static_cast<size_t>(n) * n);
-        C.resize(static_cast<size_t>(n) * n);
-        PreencherAleatorio(A, n, 42);
+        linhas = n;
+        blocoA.resize(static_cast<size_t>(n) * n);
+        PreencherAleatorio(blocoA, n, 42);
         PreencherAleatorio(B, n, 99);
     }
 
-    double inicio = 0.0;
-    if (rank == 0) {
-        inicio = MPI_Wtime();
-    }
+    MPI_Barrier(MPI_COMM_WORLD);
+    double inicio = MPI_Wtime();
 
     MPI_Bcast(B.data(), n * n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
-    if (tamanhoMundo == 1) {
-        if (rank == 0) {
-            MultiplicarSequencial(A, B, C, n);
-            double tempoTotal = MPI_Wtime() - inicio;
+    if (rank != 0) {
+        int cabecalho[2];
+        MPI_Recv(cabecalho, 2, MPI_INT, Pai(rank), TAG_CABECALHO,
+                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-            std::cout << "Multiplicacao de matrizes sequencial (MPI com 1 processo)\n";
-            std::cout << "Dimensao: " << n << " x " << n << "\n\n";
-            std::cout << "----------------------------------------\n";
-            std::cout << "Tempo de execucao: " << std::fixed << std::setprecision(4)
-                      << tempoTotal << " segundos\n";
-            std::cout << "----------------------------------------\n";
-        }
-        MPI_Finalize();
-        return 0;
+        linhaInicial = cabecalho[0];
+        linhas = cabecalho[1];
+
+        blocoA.resize(static_cast<size_t>(linhas) * n);
+        MPI_Recv(Dados(blocoA), linhas * n, MPI_DOUBLE, Pai(rank), TAG_BLOCO_A,
+                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     }
 
-    if (rank == 0) {
-        std::cout << "Multiplicacao de matrizes com MPI (coordenador/trabalhador)\n";
-        std::cout << "Dimensao: " << n << " x " << n << "\n";
-        std::cout << "Processos: " << tamanhoMundo << "\n\n";
+    blocoC.assign(static_cast<size_t>(linhas) * n, 0.0);
 
-        int proximaLinha = 0;
-        int trabalhadoresEncerrados = 0;
-        int totalTrabalhadores = tamanhoMundo - 1;
-        int dummy = 0;
+    if (TemFilhos(rank, totalProcessos)) {
+        int filhoEsquerdo = FilhoEsquerdo(rank);
+        int filhoDireito = FilhoDireito(rank);
 
-        while (trabalhadoresEncerrados < totalTrabalhadores) {
-            MPI_Status status;
-            MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+        int linhasEsquerda = linhas / 2;
+        int linhasDireita = linhas - linhasEsquerda;
+        int deslocamentoDireita = linhasEsquerda * n;
 
-            int fonte = status.MPI_SOURCE;
+        int cabecalhoEsquerdo[2] = {linhaInicial, linhasEsquerda};
+        int cabecalhoDireito[2] = {linhaInicial + linhasEsquerda, linhasDireita};
 
-            if (status.MPI_TAG == TAG_PEDIDO) {
-                MPI_Recv(&dummy, 1, MPI_INT, fonte, TAG_PEDIDO, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        MPI_Send(cabecalhoEsquerdo, 2, MPI_INT, filhoEsquerdo, TAG_CABECALHO,
+                 MPI_COMM_WORLD);
+        MPI_Send(Dados(blocoA), linhasEsquerda * n, MPI_DOUBLE, filhoEsquerdo,
+                 TAG_BLOCO_A, MPI_COMM_WORLD);
 
-                if (proximaLinha < n) {
-                    MPI_Send(&proximaLinha, 1, MPI_INT, fonte, TAG_TRABALHO, MPI_COMM_WORLD);
-                    MPI_Send(&A[static_cast<size_t>(proximaLinha) * n], n, MPI_DOUBLE,
-                             fonte, TAG_TRABALHO, MPI_COMM_WORLD);
-                    ++proximaLinha;
-                } else {
-                    MPI_Send(&dummy, 1, MPI_INT, fonte, TAG_TERMINO, MPI_COMM_WORLD);
-                    ++trabalhadoresEncerrados;
-                }
-            } else if (status.MPI_TAG == TAG_RESULTADO) {
-                int indiceLinha = -1;
-                MPI_Recv(&indiceLinha, 1, MPI_INT, fonte, TAG_RESULTADO, MPI_COMM_WORLD,
-                         MPI_STATUS_IGNORE);
-                MPI_Recv(&C[static_cast<size_t>(indiceLinha) * n], n, MPI_DOUBLE,
-                         fonte, TAG_RESULTADO, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            }
-        }
+        MPI_Send(cabecalhoDireito, 2, MPI_INT, filhoDireito, TAG_CABECALHO,
+                 MPI_COMM_WORLD);
+        MPI_Send(DadosComDeslocamento(blocoA, deslocamentoDireita),
+                 linhasDireita * n, MPI_DOUBLE, filhoDireito, TAG_BLOCO_A,
+                 MPI_COMM_WORLD);
 
+        MPI_Recv(Dados(blocoC), linhasEsquerda * n, MPI_DOUBLE, filhoEsquerdo,
+                 TAG_BLOCO_C, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        MPI_Recv(DadosComDeslocamento(blocoC, deslocamentoDireita),
+                 linhasDireita * n, MPI_DOUBLE, filhoDireito, TAG_BLOCO_C,
+                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    } else {
+        MultiplicarBloco(blocoA, B, blocoC, linhas, n);
+    }
+
+    if (rank != 0) {
+        MPI_Send(Dados(blocoC), linhas * n, MPI_DOUBLE, Pai(rank), TAG_BLOCO_C,
+                 MPI_COMM_WORLD);
+    } else {
         double tempoTotal = MPI_Wtime() - inicio;
 
+        std::cout << "Multiplicacao de matrizes com MPI (divisao e conquista)\n";
+        std::cout << "Dimensao: " << n << " x " << n << "\n";
+        std::cout << "Processos: " << totalProcessos << "\n\n";
         std::cout << "----------------------------------------\n";
         std::cout << "Tempo de execucao: " << std::fixed << std::setprecision(4)
                   << tempoTotal << " segundos\n";
         std::cout << "----------------------------------------\n";
-    } else {
-        std::vector<double> linhaA(n);
-        std::vector<double> linhaC(n);
-        int dummy = 0;
-
-        while (true) {
-            MPI_Send(&dummy, 1, MPI_INT, 0, TAG_PEDIDO, MPI_COMM_WORLD);
-
-            MPI_Status status;
-            int indiceLinha = -1;
-            MPI_Recv(&indiceLinha, 1, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-
-            if (status.MPI_TAG == TAG_TERMINO) {
-                break;
-            }
-
-            MPI_Recv(linhaA.data(), n, MPI_DOUBLE, 0, TAG_TRABALHO, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            MultiplicarLinha(linhaA, B, linhaC, n);
-            MPI_Send(&indiceLinha, 1, MPI_INT, 0, TAG_RESULTADO, MPI_COMM_WORLD);
-            MPI_Send(linhaC.data(), n, MPI_DOUBLE, 0, TAG_RESULTADO, MPI_COMM_WORLD);
-        }
     }
 
     MPI_Finalize();

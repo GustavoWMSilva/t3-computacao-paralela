@@ -1,6 +1,5 @@
-srun -N 2 -n 2 ./mult_mpi 2048
-srun -N 2 -n 2 ./mult_mpi 2580
-srun -N 2 -n 2 ./mult_mpi 3250
-srun -N 2 -n 2 ./mult_mpi 4096
-srun -N 2 -n 2 ./mult_mpi 5160
-srun -N 2 -n 2 ./mult_mpi 6502
+#!/bin/bash
+
+for N in 2048 2953 3915 5058 6435; do
+    srun -N 1 -n 1 ./mult "$N"
+done

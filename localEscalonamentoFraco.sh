@@ -1,4 +1,10 @@
-mpirun -np 1 ./mult_mpi 2048
-mpirun -np 2 ./mult_mpi 2048
-mpirun -np 4 ./mult_mpi 2555
-mpirun --oversubscribe -np 8 ./mult_mpi 3317
+#!/bin/bash
+
+PROCESSOS=(1 3 7 15 31)
+TAMANHOS=(2048 2953 3915 5058 6435)
+
+for I in "${!PROCESSOS[@]}"; do
+    P="${PROCESSOS[$I]}"
+    N="${TAMANHOS[$I]}"
+    mpirun --oversubscribe -np "$P" ./mult_mpi "$N"
+done
