@@ -17,6 +17,10 @@ processo divide seu bloco em duas partes e envia cada metade para um filho. As
 folhas conquistam o problema calculando localmente o bloco de C. Em seguida, os
 resultados sobem pela arvore ate o processo raiz.
 
+A segunda versao (`mult_mpi_balanceado.cpp`) distribui as linhas de acordo com o
+numero de folhas em cada subarvore, permitindo comparar o desempenho com um
+mecanismo simples de balanceamento de carga.
+
 ## Itens para avaliacao
 
 - Execucao da versao sequencial.
@@ -27,4 +31,5 @@ resultados sobem pela arvore ate o processo raiz.
 - Calculo de speed-up e eficiencia.
 - Analise do balanceamento da carga nos diferentes niveis da arvore.
 - Analise do ganho obtido com HT.
+- Analise do ganho obtido com a versao balanceada.
 - Clareza do codigo e relatorio em PDF.
